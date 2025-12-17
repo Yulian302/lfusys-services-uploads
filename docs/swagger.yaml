@@ -1,0 +1,73 @@
+basePath: /
+definitions:
+  uploads.HTTPError:
+    properties:
+      error:
+        example: error message
+        type: string
+    type: object
+  uploads.UploadResponse:
+    properties:
+      chunk_id:
+        example: 1
+        type: integer
+      s3_key:
+        example: uploads/abc123/chunk_1
+        type: string
+      upload_id:
+        example: abc123
+        type: string
+    type: object
+externalDocs:
+  description: OpenAPI
+  url: https://swagger.io/resources/open-api/
+host: localhost:8080
+info:
+  contact: {}
+  description: LFU Sys upload workers
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: LFU Sys UW
+  version: "1.0"
+paths:
+  /upload/{uploadId}/chunk/{chunkId}:
+    put:
+      consumes:
+      - application/octet-stream
+      description: Upload a file chunk with integrity verification
+      parameters:
+      - description: Upload session ID
+        in: path
+        name: uploadId
+        required: true
+        type: string
+      - description: Chunk number
+        in: path
+        name: chunkId
+        required: true
+        type: integer
+      - description: SHA256 hash of chunk data
+        in: header
+        name: X-Chunk-Hash
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Chunk uploaded successfully
+          schema:
+            $ref: '#/definitions/uploads.UploadResponse'
+        "400":
+          description: Invalid request or integrity error
+          schema:
+            $ref: '#/definitions/uploads.HTTPError'
+        "500":
+          description: S3 upload failed
+          schema:
+            $ref: '#/definitions/uploads.HTTPError'
+      summary: Upload file chunk
+      tags:
+      - uploads
+swagger: "2.0"

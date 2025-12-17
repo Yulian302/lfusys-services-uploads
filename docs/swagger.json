@@ -1,0 +1,107 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "LFU Sys upload workers",
+        "title": "LFU Sys UW",
+        "contact": {},
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/upload/{uploadId}/chunk/{chunkId}": {
+            "put": {
+                "description": "Upload a file chunk with integrity verification",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "uploads"
+                ],
+                "summary": "Upload file chunk",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Upload session ID",
+                        "name": "uploadId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Chunk number",
+                        "name": "chunkId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "SHA256 hash of chunk data",
+                        "name": "X-Chunk-Hash",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chunk uploaded successfully",
+                        "schema": {
+                            "$ref": "#/definitions/uploads.UploadResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request or integrity error",
+                        "schema": {
+                            "$ref": "#/definitions/uploads.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "S3 upload failed",
+                        "schema": {
+                            "$ref": "#/definitions/uploads.HTTPError"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "uploads.HTTPError": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "error message"
+                }
+            }
+        },
+        "uploads.UploadResponse": {
+            "type": "object",
+            "properties": {
+                "chunk_id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "uploads/abc123/chunk_1"
+                },
+                "upload_id": {
+                    "type": "string",
+                    "example": "abc123"
+                }
+            }
+        }
+    },
+    "externalDocs": {
+        "description": "OpenAPI",
+        "url": "https://swagger.io/resources/open-api/"
+    }
+}

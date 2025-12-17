@@ -11,10 +11,26 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
+	_ "github.com/Yulian302/lfusys-services-uploads/docs"
 	_ "github.com/joho/godotenv/autoload"
 )
 
+//	@title			LFU Sys UW
+//	@version		1.0
+//	@description	LFU Sys upload workers
+//	@swagger		2.0
+
+//	@license.name	Apache 2.0
+//	@license.url	http://www.apache.org/licenses/LICENSE-2.0.html
+
+//	@host		localhost:8080
+//	@BasePath	/
+
+// @externalDocs.description	OpenAPI
+// @externalDocs.url			https://swagger.io/resources/open-api/
 func main() {
 	cfg := common.LoadConfig()
 
@@ -37,6 +53,10 @@ func main() {
 			"message": "ok",
 		})
 	})
+
+	if cfg.Env != "PROD" {
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	uploadsHandler := uploads.NewUploadsHanlder(s3Client, &cfg)
 	routers.RegisterUploadsRouter(uploadsHandler, r)

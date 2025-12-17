@@ -2,6 +2,8 @@ package uploads
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -26,11 +28,36 @@ func NewUploadsHanlder(s3Client *s3.Client, config *common.Config) *UploadsHandl
 	}
 }
 
+type HTTPError struct {
+	Error string `json:"error" example:"error message"`
+}
+
+type UploadResponse struct {
+	UploadId string `json:"upload_id" example:"abc123"`
+	ChunkId  int    `json:"chunk_id" example:"1"`
+	S3Key    string `json:"s3_key" example:"uploads/abc123/chunk_1"`
+}
+
+// Upload godoc
+//
+//	@Summary		Upload file chunk
+//	@Description	Upload a file chunk with integrity verification
+//	@Tags			uploads
+//	@Accept			octet-stream
+//	@Produce		json
+//	@Param			uploadId		path		string			true	"Upload session ID"
+//	@Param			chunkId			path		int				true	"Chunk number"
+//	@Param			X-Chunk-Hash	header		string			true	"SHA256 hash of chunk data"
+//	@Success		200				{object}	UploadResponse	"Chunk uploaded successfully"
+//	@Failure		400				{object}	HTTPError		"Invalid request or integrity error"
+//	@Failure		500				{object}	HTTPError		"S3 upload failed"
+//	@Router			/upload/{uploadId}/chunk/{chunkId} [put]
 func (h *UploadsHandler) Upload(ctx *gin.Context) {
 	uploadId := ctx.Param("uploadId")
 	chunkIdStr := ctx.Param("chunkId")
+	expectedHash := ctx.GetHeader("X-Chunk-Hash")
 
-	if uploadId == "" || chunkIdStr == "" {
+	if uploadId == "" || chunkIdStr == "" || expectedHash == "" {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid fields",
 		})
@@ -55,6 +82,15 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 		return
 	}
 
+	// hash integrity check
+	hash := sha256.New()
+	hash.Write(chunkData)
+	calculatedHash := hex.EncodeToString(hash.Sum(nil))
+	if expectedHash != calculatedHash {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "integrity error"})
+		return
+	}
+
 	key := fmt.Sprintf("uploads/%s/chunk_%d", uploadId, chunkId)
 	_, err = h.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(h.config.AWS_BUCKET_NAME),
@@ -67,9 +103,9 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"upload_id": uploadId,
-		"chunk_id":  chunkId,
-		"s3_key":    key,
+	ctx.JSON(http.StatusOK, UploadResponse{
+		UploadId: uploadId,
+		ChunkId:  chunkId,
+		S3Key:    key,
 	})
 }
