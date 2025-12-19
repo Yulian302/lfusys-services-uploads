@@ -10,6 +10,7 @@ import (
 	"github.com/Yulian302/lfusys-services-uploads/uploads"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -47,6 +48,15 @@ func main() {
 	s3Client := s3.NewFromConfig(awsCfg)
 
 	r := gin.Default()
+
+	r.Use(cors.New(
+		cors.Config{
+			AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://frontend:3000"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Chunk-Hash"},
+			AllowCredentials: true,
+		},
+	))
 
 	r.GET("/test", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{
