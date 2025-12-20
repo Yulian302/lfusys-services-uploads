@@ -93,7 +93,7 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 
 	key := fmt.Sprintf("uploads/%s/chunk_%d", uploadId, chunkId)
 	_, err = h.s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(h.config.AWS_BUCKET_NAME),
+		Bucket: aws.String(h.config.AWSConfig.BucketName),
 		Key:    aws.String(key),
 		Body:   bytes.NewReader(chunkData),
 	})

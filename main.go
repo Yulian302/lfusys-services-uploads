@@ -35,12 +35,11 @@ import (
 func main() {
 	cfg := common.LoadConfig()
 
-	// verify aws credentials
-	if cfg.AWS_ACCESS_KEY_ID == "" || cfg.AWS_SECRET_ACCESS_KEY == "" {
+	if err := cfg.AWSConfig.ValidateSecrets(); err != nil {
 		log.Fatal("aws security credentials were not found")
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(cfg.AWS_REGION))
+	awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(cfg.AWSConfig.Region))
 	if err != nil {
 		log.Fatalf("failed to load aws config: %v", err)
 	}
@@ -71,5 +70,5 @@ func main() {
 	uploadsHandler := uploads.NewUploadsHanlder(s3Client, &cfg)
 	routers.RegisterUploadsRouter(uploadsHandler, r)
 
-	r.Run(cfg.UPLOADS_ADDR)
+	r.Run(cfg.ServiceConfig.UploadsAddr)
 }
