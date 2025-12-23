@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	common "github.com/Yulian302/lfusys-services-commons"
+	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/routers"
 	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/Yulian302/lfusys-services-uploads/store"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -71,11 +73,14 @@ func main() {
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
+	sqs := sqs.NewFromConfig(awsCfg)
+
+	upNotifyQueue := queues.NewSQSUploadNotify(sqs, cfg.ServiceConfig.UploadsNotificationsQueueName, cfg.AWSConfig.AccountID)
 	chunkStore := store.NewS3ChunkStore(s3Client, cfg.AWSConfig.BucketName)
 	sessionStore := store.NewDynamoDbUploadsStore(dbClient, cfg.DynamoDBConfig.UploadsTableName)
 
 	uploadService := services.NewUploadServiceImpl(chunkStore)
-	sessionService := services.NewSessionServiceImpl(sessionStore)
+	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue)
 
 	uploadsHandler := uploads.NewUploadsHandler(uploadService, sessionService)
 	routers.RegisterUploadsRouter(uploadsHandler, r)

@@ -14,7 +14,7 @@ import (
 
 type UploadsStore interface {
 	GetSession(ctx context.Context, uploadID string) (*UploadSession, error)
-	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error
+	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) (bool, error)
 }
 
 type DynamoDbUploadsStore struct {
@@ -49,7 +49,7 @@ func (s *DynamoDbUploadsStore) GetSession(ctx context.Context, uploadID string) 
 	return &currentSession, nil
 }
 
-func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error {
+func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) (bool, error) {
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -79,7 +79,7 @@ func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, ch
 	})
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if totalChunks == chunkIdx {
@@ -106,6 +106,7 @@ func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, ch
 				"#status": "status",
 			},
 		})
+		return true, err
 	}
-	return err
+	return false, err
 }
