@@ -7,8 +7,11 @@ import (
 
 	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-uploads/routers"
+	"github.com/Yulian302/lfusys-services-uploads/services"
+	"github.com/Yulian302/lfusys-services-uploads/store"
 	"github.com/Yulian302/lfusys-services-uploads/uploads"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -43,6 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load aws config: %v", err)
 	}
+	dbClient := dynamodb.NewFromConfig(awsCfg)
 
 	s3Client := s3.NewFromConfig(awsCfg)
 
@@ -67,7 +71,13 @@ func main() {
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
-	uploadsHandler := uploads.NewUploadsHanlder(s3Client, &cfg)
+	chunkStore := store.NewS3ChunkStore(s3Client, cfg.AWSConfig.BucketName)
+	sessionStore := store.NewDynamoDbUploadsStore(dbClient, cfg.DynamoDBConfig.UploadsTableName)
+
+	uploadService := services.NewUploadServiceImpl(chunkStore)
+	sessionService := services.NewSessionServiceImpl(sessionStore)
+
+	uploadsHandler := uploads.NewUploadsHandler(uploadService, sessionService)
 	routers.RegisterUploadsRouter(uploadsHandler, r)
 
 	r.Run(cfg.ServiceConfig.UploadsAddr)
