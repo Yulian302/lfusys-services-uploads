@@ -1,0 +1,111 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/Yulian302/lfusys-services-commons/errors"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+)
+
+type UploadsStore interface {
+	GetSession(ctx context.Context, uploadID string) (*UploadSession, error)
+	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error
+}
+
+type DynamoDbUploadsStore struct {
+	client    *dynamodb.Client
+	tableName string
+}
+
+func NewDynamoDbUploadsStore(client *dynamodb.Client, tableName string) *DynamoDbUploadsStore {
+	return &DynamoDbUploadsStore{
+		client:    client,
+		tableName: tableName,
+	}
+}
+
+func (s *DynamoDbUploadsStore) GetSession(ctx context.Context, uploadID string) (*UploadSession, error) {
+	res, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+		},
+	})
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil, fmt.Errorf("%w: %w", errors.ErrSessionNotFound, err)
+	}
+
+	var currentSession UploadSession
+	if err := attributevalue.UnmarshalMap(res.Item, &currentSession); err != nil {
+		return nil, fmt.Errorf("unmarshal failed: %w", err)
+	}
+
+	return &currentSession, nil
+}
+
+func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+		},
+		UpdateExpression: aws.String(`
+            ADD uploaded_chunks :chunk
+            SET #status = :in_progress
+        `),
+		ConditionExpression: aws.String(`
+			attribute_not_exists(uploaded_chunks)
+			OR size(uploaded_chunks)< :total
+        `),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":chunk": &types.AttributeValueMemberNS{
+				Value: []string{strconv.FormatUint(uint64(chunkIdx), 10)},
+			},
+			":total": &types.AttributeValueMemberN{
+				Value: strconv.FormatUint(uint64(totalChunks), 10),
+			},
+			":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
+		},
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	if totalChunks == chunkIdx {
+		_, err = s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+			TableName: aws.String(s.tableName),
+			Key: map[string]types.AttributeValue{
+				"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+			},
+			UpdateExpression: aws.String(`
+                SET #status = :completed
+            `),
+			ConditionExpression: aws.String(`
+                size(uploaded_chunks) = :total
+                AND #status = :in_progress
+            `),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":total": &types.AttributeValueMemberN{
+					Value: strconv.FormatUint(uint64(totalChunks), 10),
+				},
+				":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
+				":completed":   &types.AttributeValueMemberS{Value: "completed"},
+			},
+			ExpressionAttributeNames: map[string]string{
+				"#status": "status",
+			},
+		})
+	}
+	return err
+}

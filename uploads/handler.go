@@ -1,41 +1,32 @@
 package uploads
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	error "errors"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 
-	common "github.com/Yulian302/lfusys-services-commons"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/Yulian302/lfusys-services-commons/errors"
+	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/gin-gonic/gin"
 )
 
 type UploadsHandler struct {
-	s3Client *s3.Client
-	config   *common.Config
+	uploadService  services.UploadService
+	sessionService services.SessionService
 }
 
-func NewUploadsHanlder(s3Client *s3.Client, config *common.Config) *UploadsHandler {
+func NewUploadsHandler(uploadService services.UploadService, sesionService services.SessionService) *UploadsHandler {
 	return &UploadsHandler{
-		s3Client: s3Client,
-		config:   config,
+		uploadService:  uploadService,
+		sessionService: sesionService,
 	}
 }
 
 type HTTPError struct {
 	Error string `json:"error" example:"error message"`
-}
-
-type UploadResponse struct {
-	UploadId string `json:"upload_id" example:"abc123"`
-	ChunkId  int    `json:"chunk_id" example:"1"`
-	S3Key    string `json:"s3_key" example:"uploads/abc123/chunk_1"`
 }
 
 // Upload godoc
@@ -58,27 +49,24 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 	expectedHash := ctx.GetHeader("X-Chunk-Hash")
 
 	if uploadId == "" || chunkIdStr == "" || expectedHash == "" {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid fields",
-		})
+		errors.BadRequestResponse(ctx, "invalid fields")
 		return
 	}
 
-	chunkId, err := strconv.Atoi(chunkIdStr)
+	chunkId, err := strconv.ParseUint(chunkIdStr, 10, 32)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "invalid chunk ID",
-		})
+		errors.BadRequestResponse(ctx, "invalid chunk ID")
 		return
 	}
 
 	chunkData, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to read chunk"})
+		errors.BadRequestResponse(ctx, "failed to read chunk data")
 		return
 	}
+
 	if len(chunkData) == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "no binary data"})
+		errors.BadRequestResponse(ctx, "no chunk binary data")
 		return
 	}
 
@@ -87,25 +75,30 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 	hash.Write(chunkData)
 	calculatedHash := hex.EncodeToString(hash.Sum(nil))
 	if expectedHash != calculatedHash {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "integrity error"})
+		errors.BadRequestResponse(ctx, "integrity error")
 		return
 	}
 
-	key := fmt.Sprintf("uploads/%s/chunk_%d", uploadId, chunkId)
-	_, err = h.s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(h.config.AWSConfig.BucketName),
-		Key:    aws.String(key),
-		Body:   bytes.NewReader(chunkData),
-	})
+	err = h.uploadService.Upload(ctx, uploadId, uint32(chunkId), chunkData)
 	if err != nil {
-		log.Printf("S3 error: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upload chunk"})
+		errors.InternalServerErrorResponse(ctx, err.Error())
+		return
+	}
+
+	err = h.sessionService.MarkChunkComplete(ctx, uploadId, uint32(chunkId))
+	if err != nil {
+		if error.Is(err, errors.ErrSessionNotFound) {
+			errors.UnauthorizedResponse(ctx, "session not found")
+		} else if error.Is(err, errors.ErrSessionUpdateDetails) {
+			errors.InternalServerErrorResponse(ctx, "could not update session details")
+		} else {
+			errors.InternalServerErrorResponse(ctx, "internal server error")
+		}
 		return
 	}
 
 	ctx.JSON(http.StatusOK, UploadResponse{
 		UploadId: uploadId,
-		ChunkId:  chunkId,
-		S3Key:    key,
+		ChunkId:  uint32(chunkId),
 	})
 }
