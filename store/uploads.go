@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	cerr "errors"
 	"fmt"
 	"strconv"
 
@@ -14,7 +15,8 @@ import (
 
 type UploadsStore interface {
 	GetSession(ctx context.Context, uploadID string) (*UploadSession, error)
-	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) (bool, error)
+	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error
+	TryFinalizeUpload(ctx context.Context, uploadID string, totalChunks uint32) (bool, error)
 }
 
 type DynamoDbUploadsStore struct {
@@ -49,7 +51,7 @@ func (s *DynamoDbUploadsStore) GetSession(ctx context.Context, uploadID string) 
 	return &currentSession, nil
 }
 
-func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) (bool, error) {
+func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error {
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(s.tableName),
 		Key: map[string]types.AttributeValue{
@@ -61,7 +63,7 @@ func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, ch
         `),
 		ConditionExpression: aws.String(`
 			attribute_not_exists(uploaded_chunks)
-			OR size(uploaded_chunks)< :total
+			OR size(uploaded_chunks) <= :total
         `),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":chunk": &types.AttributeValueMemberNS{
@@ -78,35 +80,47 @@ func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, ch
 		ReturnValues: types.ReturnValueAllNew,
 	})
 
+	var cfe *types.ConditionalCheckFailedException
+	if err != nil && !cerr.As(err, &cfe) {
+		return err
+	}
+
+	return nil
+}
+
+func (s *DynamoDbUploadsStore) TryFinalizeUpload(
+	ctx context.Context,
+	uploadID string,
+	totalChunks uint32,
+) (bool, error) {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(s.tableName),
+		Key: map[string]types.AttributeValue{
+			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+		},
+		UpdateExpression: aws.String(`
+			SET #status = :completed
+		`),
+		ConditionExpression: aws.String(`
+			size(uploaded_chunks) = :total
+			AND #status <> :completed
+		`),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":total":     &types.AttributeValueMemberN{Value: strconv.FormatUint(uint64(totalChunks), 10)},
+			":completed": &types.AttributeValueMemberS{Value: "completed"},
+		},
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+	})
+
 	if err != nil {
+		var cfe *types.ConditionalCheckFailedException
+		if cerr.As(err, &cfe) {
+			return false, nil // someone else finalized
+		}
 		return false, err
 	}
 
-	if totalChunks == chunkIdx {
-		_, err = s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-			TableName: aws.String(s.tableName),
-			Key: map[string]types.AttributeValue{
-				"upload_id": &types.AttributeValueMemberS{Value: uploadID},
-			},
-			UpdateExpression: aws.String(`
-                SET #status = :completed
-            `),
-			ConditionExpression: aws.String(`
-                size(uploaded_chunks) = :total
-                AND #status = :in_progress
-            `),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":total": &types.AttributeValueMemberN{
-					Value: strconv.FormatUint(uint64(totalChunks), 10),
-				},
-				":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
-				":completed":   &types.AttributeValueMemberS{Value: "completed"},
-			},
-			ExpressionAttributeNames: map[string]string{
-				"#status": "status",
-			},
-		})
-		return true, err
-	}
-	return false, err
+	return true, nil
 }
