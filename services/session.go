@@ -2,9 +2,7 @@ package services
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/Yulian302/lfusys-services-commons/errors"
 	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/store"
 )
@@ -31,16 +29,22 @@ func (s *SessionServiceImpl) MarkChunkComplete(ctx context.Context, uploadID str
 		return err
 	}
 
-	isLast, err := s.uploadsStore.PutChunk(ctx, uploadID, chunkIdx, session.TotalChunks)
+	if err := s.uploadsStore.PutChunk(ctx, uploadID, chunkIdx, session.TotalChunks); err != nil {
+		return err
+	}
+
+	completed, err := s.uploadsStore.TryFinalizeUpload(
+		ctx,
+		uploadID,
+		session.TotalChunks,
+	)
 	if err != nil {
-		fmt.Println(err.Error())
-		return fmt.Errorf("%w: %w", errors.ErrSessionUpdateDetails, err)
+		return err
 	}
-	if isLast {
-		err := s.uploadNotify.NotifyUploadComplete(ctx, uploadID)
-		if err != nil {
-			return fmt.Errorf("%w: %w", errors.ErrUploadCompleteNotifyFailed, err)
-		}
+
+	if completed {
+		return s.uploadNotify.NotifyUploadComplete(ctx, uploadID)
 	}
+
 	return nil
 }
