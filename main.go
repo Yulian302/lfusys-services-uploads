@@ -3,22 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
-
-	common "github.com/Yulian302/lfusys-services-commons"
-	"github.com/Yulian302/lfusys-services-uploads/queues"
-	"github.com/Yulian302/lfusys-services-uploads/routers"
-	"github.com/Yulian302/lfusys-services-uploads/services"
-	"github.com/Yulian302/lfusys-services-uploads/store"
-	"github.com/Yulian302/lfusys-services-uploads/uploads"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
+	"os/signal"
+	"syscall"
+	"time"
 
 	_ "github.com/Yulian302/lfusys-services-uploads/docs"
 	_ "github.com/joho/godotenv/autoload"
@@ -38,52 +25,31 @@ import (
 // @externalDocs.description	OpenAPI
 // @externalDocs.url			https://swagger.io/resources/open-api/
 func main() {
-	cfg := common.LoadConfig()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer stop()
 
-	if err := cfg.AWSConfig.ValidateSecrets(); err != nil {
-		log.Fatal("aws security credentials were not found")
-	}
-
-	awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(cfg.AWSConfig.Region))
+	app, err := SetupApp()
 	if err != nil {
-		log.Fatalf("failed to load aws config: %v", err)
-	}
-	dbClient := dynamodb.NewFromConfig(awsCfg)
-
-	s3Client := s3.NewFromConfig(awsCfg)
-
-	r := gin.Default()
-
-	r.Use(cors.New(
-		cors.Config{
-			AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://frontend:3000"},
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Chunk-Hash"},
-			AllowCredentials: true,
-		},
-	))
-
-	r.GET("/test", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{
-			"message": "ok",
-		})
-	})
-
-	if cfg.Env != "PROD" {
-		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		log.Fatalf("failed to initialize app: %v", err)
 	}
 
-	sqs := sqs.NewFromConfig(awsCfg)
+	router := BuildRouter(app)
 
-	upNotifyQueue := queues.NewSQSUploadNotify(sqs, cfg.ServiceConfig.UploadsNotificationsQueueName, cfg.AWSConfig.AccountID)
-	chunkStore := store.NewS3ChunkStore(s3Client, cfg.AWSConfig.BucketName)
-	sessionStore := store.NewDynamoDbUploadsStore(dbClient, cfg.DynamoDBConfig.UploadsTableName)
+	go func() {
+		if err := app.Run(router); err != nil {
+			log.Printf("server stopped: %v", err)
+		}
+	}()
 
-	uploadService := services.NewUploadServiceImpl(chunkStore)
-	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue)
+	<-ctx.Done()
 
-	uploadsHandler := uploads.NewUploadsHandler(uploadService, sessionService)
-	routers.RegisterUploadsRouter(uploadsHandler, r)
+	log.Println("shutdown signal received")
+	shutDownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	r.Run(cfg.ServiceConfig.UploadsAddr)
+	if err := app.Shutdown(shutDownContext); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+	}
+
+	log.Println("server exited properly")
 }
