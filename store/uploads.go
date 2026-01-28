@@ -5,8 +5,10 @@ import (
 	cerr "errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/Yulian302/lfusys-services-commons/errors"
+	"github.com/Yulian302/lfusys-services-commons/health"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -17,6 +19,8 @@ type UploadsStore interface {
 	GetSession(ctx context.Context, uploadID string) (*UploadSession, error)
 	PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error
 	TryFinalizeUpload(ctx context.Context, uploadID string, totalChunks uint32) (bool, error)
+
+	health.ReadinessCheck
 }
 
 type DynamoDbUploadsStore struct {
@@ -29,6 +33,21 @@ func NewDynamoDbUploadsStore(client *dynamodb.Client, tableName string) *DynamoD
 		client:    client,
 		tableName: tableName,
 	}
+}
+
+func (s *DynamoDbUploadsStore) IsReady() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	_, err := s.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(s.tableName),
+	})
+
+	return err == nil
+}
+
+func (s *DynamoDbUploadsStore) Name() string {
+	return "UploadsStore[sessions]"
 }
 
 func (s *DynamoDbUploadsStore) GetSession(ctx context.Context, uploadID string) (*UploadSession, error) {
