@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	common "github.com/Yulian302/lfusys-services-commons"
+	"github.com/Yulian302/lfusys-services-commons/health"
 	"github.com/Yulian302/lfusys-services-commons/responses"
 	"github.com/Yulian302/lfusys-services-uploads/routers"
 	"github.com/Yulian302/lfusys-services-uploads/uploads"
@@ -64,6 +65,12 @@ func registerRoutes(r *gin.Engine, app *App, s *Services) {
 	r.GET("/test", func(ctx *gin.Context) {
 		responses.JSONSuccess(ctx, "ok")
 	})
+
+	health.RegisterHealthRoutes(health.NewHealthHandler(
+		s.Stores.sessions,
+	),
+		r,
+	)
 
 	routers.RegisterUploadsRouter(
 		uploads.NewUploadsHandler(s.Uploads, s.Sessions),
