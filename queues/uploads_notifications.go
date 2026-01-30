@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/Yulian302/lfusys-services-commons/health"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 type UploadNotify interface {
 	NotifyUploadComplete(ctx context.Context, uploadId string) error
+
+	health.ReadinessCheck
 }
 
 type SQSUploadNotify struct {
@@ -26,6 +29,19 @@ func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string) 
 		queueName: queueName,
 		accountID: accountId,
 	}
+}
+
+func (q *SQSUploadNotify) IsReady(ctx context.Context) error {
+	_, err := q.client.SendMessage(ctx, &sqs.SendMessageInput{
+		QueueUrl:     aws.String(fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", "eu-north-1", q.accountID, q.queueName)),
+		MessageBody:  aws.String("healthcheck"),
+		DelaySeconds: 0,
+	})
+	return err
+}
+
+func (q *SQSUploadNotify) Name() string {
+	return "NoficationQueue[uploadsComplete]"
 }
 
 func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId string) error {

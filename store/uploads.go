@@ -35,15 +35,15 @@ func NewDynamoDbUploadsStore(client *dynamodb.Client, tableName string) *DynamoD
 	}
 }
 
-func (s *DynamoDbUploadsStore) IsReady() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+func (s *DynamoDbUploadsStore) IsReady(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	_, err := s.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(s.tableName),
 	})
 
-	return err == nil
+	return err
 }
 
 func (s *DynamoDbUploadsStore) Name() string {
