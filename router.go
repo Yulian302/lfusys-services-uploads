@@ -23,7 +23,7 @@ func BuildRouter(app *App) *gin.Engine {
 	applyTracing(r, app)
 	applySwagger(r, app)
 
-	registerRoutes(r, app, app.Services)
+	registerRoutes(r, app.Services)
 
 	return r
 }
@@ -34,7 +34,7 @@ func applyCors(r *gin.Engine, app *App) {
 		cors.Config{
 			AllowOrigins:     origins,
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Chunk-Hash"},
 			AllowCredentials: true,
 		},
 	))
@@ -61,13 +61,15 @@ func applySwagger(r *gin.Engine, app *App) {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
 
-func registerRoutes(r *gin.Engine, app *App, s *Services) {
+func registerRoutes(r *gin.Engine, s *Services) {
 	r.GET("/test", func(ctx *gin.Context) {
 		responses.JSONSuccess(ctx, "ok")
 	})
 
 	health.RegisterHealthRoutes(health.NewHealthHandler(
 		s.Stores.sessions,
+		s.Stores.chunks,
+		s.UploadsNotify,
 	),
 		r,
 	)
