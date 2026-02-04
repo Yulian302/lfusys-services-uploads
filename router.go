@@ -1,10 +1,8 @@
 package main
 
 import (
-	"log"
 	"strings"
 
-	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-commons/health"
 	"github.com/Yulian302/lfusys-services-commons/responses"
 	"github.com/Yulian302/lfusys-services-uploads/routers"
@@ -45,13 +43,7 @@ func applyTracing(r *gin.Engine, app *App) {
 		return
 	}
 
-	tp, err := common.StartTracing()
-	if err != nil {
-		log.Fatalf("failed to start tracing: %v", err)
-	}
-
-	app.TracerProvider = tp
-	r.Use(otelgin.Middleware("gateway"))
+	r.Use(otelgin.Middleware("uploads-service"))
 }
 
 func applySwagger(r *gin.Engine, app *App) {

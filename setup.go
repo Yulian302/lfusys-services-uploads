@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-commons/config"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -65,6 +66,16 @@ func SetupApp() (*App, error) {
 
 		Config:    cfg,
 		AwsConfig: awsCfg,
+	}
+
+	if cfg.Tracing {
+		tp, err := common.InitTracer(context.Background(), "uploads", cfg.TracingAddr)
+		if err != nil {
+			log.Fatalf("failed to start tracing: %v", err)
+		}
+		log.Println("tracing in progress...")
+
+		app.TracerProvider = tp
 	}
 
 	app.Services = BuildServices(app)
