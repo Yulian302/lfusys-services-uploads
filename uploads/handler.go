@@ -43,30 +43,30 @@ type HTTPError struct {
 //	@Failure		400				{object}	HTTPError		"Invalid request or integrity error"
 //	@Failure		500				{object}	HTTPError		"S3 upload failed"
 //	@Router			/upload/{uploadId}/chunk/{chunkId} [put]
-func (h *UploadsHandler) Upload(ctx *gin.Context) {
-	uploadId := ctx.Param("uploadId")
-	chunkIdStr := ctx.Param("chunkId")
-	expectedHash := ctx.GetHeader("X-Chunk-Hash")
+func (h *UploadsHandler) Upload(c *gin.Context) {
+	uploadId := c.Param("uploadId")
+	chunkIdStr := c.Param("chunkId")
+	expectedHash := c.GetHeader("X-Chunk-Hash")
 
 	if uploadId == "" || chunkIdStr == "" || expectedHash == "" {
-		errors.BadRequestResponse(ctx, "invalid fields")
+		errors.BadRequestResponse(c, "invalid fields")
 		return
 	}
 
 	chunkId, err := strconv.ParseUint(chunkIdStr, 10, 32)
 	if err != nil {
-		errors.BadRequestResponse(ctx, "invalid chunk ID")
+		errors.BadRequestResponse(c, "invalid chunk ID")
 		return
 	}
 
-	chunkData, err := io.ReadAll(ctx.Request.Body)
+	chunkData, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		errors.BadRequestResponse(ctx, "failed to read chunk data")
+		errors.BadRequestResponse(c, "failed to read chunk data")
 		return
 	}
 
 	if len(chunkData) == 0 {
-		errors.BadRequestResponse(ctx, "no chunk binary data")
+		errors.BadRequestResponse(c, "no chunk binary data")
 		return
 	}
 
@@ -75,29 +75,29 @@ func (h *UploadsHandler) Upload(ctx *gin.Context) {
 	hash.Write(chunkData)
 	calculatedHash := hex.EncodeToString(hash.Sum(nil))
 	if expectedHash != calculatedHash {
-		errors.BadRequestResponse(ctx, "integrity error")
+		errors.BadRequestResponse(c, "integrity error")
 		return
 	}
 
-	err = h.uploadService.Upload(ctx, uploadId, uint32(chunkId), chunkData)
+	err = h.uploadService.Upload(c.Request.Context(), uploadId, uint32(chunkId), chunkData)
 	if err != nil {
-		errors.InternalServerErrorResponse(ctx, err.Error())
+		errors.InternalServerErrorResponse(c, err.Error())
 		return
 	}
 
-	err = h.sessionService.MarkChunkComplete(ctx, uploadId, uint32(chunkId))
+	err = h.sessionService.MarkChunkComplete(c.Request.Context(), uploadId, uint32(chunkId))
 	if err != nil {
 		if error.Is(err, errors.ErrSessionNotFound) {
-			errors.UnauthorizedResponse(ctx, "session not found")
+			errors.UnauthorizedResponse(c, "session not found")
 		} else if error.Is(err, errors.ErrSessionUpdateDetails) {
-			errors.InternalServerErrorResponse(ctx, "could not update session details")
+			errors.InternalServerErrorResponse(c, "could not update session details")
 		} else {
-			errors.InternalServerErrorResponse(ctx, "internal server error")
+			errors.InternalServerErrorResponse(c, "internal server error")
 		}
 		return
 	}
 
-	ctx.JSON(http.StatusOK, UploadResponse{
+	c.JSON(http.StatusOK, UploadResponse{
 		UploadId: uploadId,
 		ChunkId:  uint32(chunkId),
 	})
