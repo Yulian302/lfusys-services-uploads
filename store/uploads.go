@@ -3,12 +3,12 @@ package store
 import (
 	"context"
 	cerr "errors"
-	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/Yulian302/lfusys-services-commons/errors"
+	apperror "github.com/Yulian302/lfusys-services-commons/errors"
 	"github.com/Yulian302/lfusys-services-commons/health"
+	"github.com/Yulian302/lfusys-services-commons/retries"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -39,11 +39,19 @@ func (s *DynamoDbUploadsStore) IsReady(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	_, err := s.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(s.tableName),
-	})
+	return retries.Retry(
+		ctx,
+		retries.HealthAttempts,
+		retries.HealthBaseDelay,
+		func() error {
+			_, err := s.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+				TableName: aws.String(s.tableName),
+			})
 
-	return err
+			return err
+		},
+		retries.IsRetriableDbError,
+	)
 }
 
 func (s *DynamoDbUploadsStore) Name() string {
@@ -51,60 +59,82 @@ func (s *DynamoDbUploadsStore) Name() string {
 }
 
 func (s *DynamoDbUploadsStore) GetSession(ctx context.Context, uploadID string) (*UploadSession, error) {
-	res, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: aws.String(s.tableName),
-		Key: map[string]types.AttributeValue{
-			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+	var session UploadSession
+
+	err := retries.Retry(
+		ctx,
+		retries.DefaultAttempts,
+		retries.DefaultBaseDelay,
+		func() error {
+			out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+				TableName: aws.String(s.tableName),
+				Key: map[string]types.AttributeValue{
+					"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			if out.Item == nil {
+				return apperror.ErrSessionNotFound
+			}
+
+			return attributevalue.UnmarshalMap(out.Item, &session)
 		},
-	})
+		retries.IsRetriableDbError,
+	)
+
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil, fmt.Errorf("%w: %w", errors.ErrSessionNotFound, err)
+		return nil, err
 	}
 
-	var currentSession UploadSession
-	if err := attributevalue.UnmarshalMap(res.Item, &currentSession); err != nil {
-		return nil, fmt.Errorf("unmarshal failed: %w", err)
-	}
-
-	return &currentSession, nil
+	return &session, nil
 }
 
 func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, chunkIdx uint32, totalChunks uint32) error {
-	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(s.tableName),
-		Key: map[string]types.AttributeValue{
-			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
-		},
-		UpdateExpression: aws.String(`
+	return retries.Retry(
+		ctx,
+		retries.DefaultAttempts,
+		retries.DefaultBaseDelay,
+		func() error {
+			_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+				TableName: aws.String(s.tableName),
+				Key: map[string]types.AttributeValue{
+					"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+				},
+				UpdateExpression: aws.String(`
             ADD uploaded_chunks :chunk
             SET #status = :in_progress
         `),
-		ConditionExpression: aws.String(`
+				ConditionExpression: aws.String(`
 			attribute_not_exists(uploaded_chunks)
 			OR size(uploaded_chunks) <= :total
         `),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":chunk": &types.AttributeValueMemberNS{
-				Value: []string{strconv.FormatUint(uint64(chunkIdx), 10)},
-			},
-			":total": &types.AttributeValueMemberN{
-				Value: strconv.FormatUint(uint64(totalChunks), 10),
-			},
-			":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
-		},
-		ExpressionAttributeNames: map[string]string{
-			"#status": "status",
-		},
-		ReturnValues: types.ReturnValueAllNew,
-	})
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":chunk": &types.AttributeValueMemberNS{
+						Value: []string{strconv.FormatUint(uint64(chunkIdx), 10)},
+					},
+					":total": &types.AttributeValueMemberN{
+						Value: strconv.FormatUint(uint64(totalChunks), 10),
+					},
+					":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
+				},
+				ExpressionAttributeNames: map[string]string{
+					"#status": "status",
+				},
+				ReturnValues: types.ReturnValueAllNew,
+			})
 
-	var cfe *types.ConditionalCheckFailedException
-	if err != nil && !cerr.As(err, &cfe) {
-		return err
-	}
+			var cfe *types.ConditionalCheckFailedException
+			if err != nil && !cerr.As(err, &cfe) {
+				return err
+			}
 
-	return nil
+			return nil
+		},
+		retries.IsRetriableDbError,
+	)
 }
 
 func (s *DynamoDbUploadsStore) TryFinalizeUpload(
@@ -112,34 +142,48 @@ func (s *DynamoDbUploadsStore) TryFinalizeUpload(
 	uploadID string,
 	totalChunks uint32,
 ) (bool, error) {
-	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
-		TableName: aws.String(s.tableName),
-		Key: map[string]types.AttributeValue{
-			"upload_id": &types.AttributeValueMemberS{Value: uploadID},
-		},
-		UpdateExpression: aws.String(`
+	finalized := false
+
+	err := retries.Retry(
+		ctx,
+		retries.DefaultAttempts,
+		retries.DefaultBaseDelay,
+		func() error {
+			_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+				TableName: aws.String(s.tableName),
+				Key: map[string]types.AttributeValue{
+					"upload_id": &types.AttributeValueMemberS{Value: uploadID},
+				},
+				UpdateExpression: aws.String(`
 			SET #status = :completed
 		`),
-		ConditionExpression: aws.String(`
+				ConditionExpression: aws.String(`
 			size(uploaded_chunks) = :total
 			AND #status <> :completed
 		`),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":total":     &types.AttributeValueMemberN{Value: strconv.FormatUint(uint64(totalChunks), 10)},
-			":completed": &types.AttributeValueMemberS{Value: "completed"},
-		},
-		ExpressionAttributeNames: map[string]string{
-			"#status": "status",
-		},
-	})
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":total":     &types.AttributeValueMemberN{Value: strconv.FormatUint(uint64(totalChunks), 10)},
+					":completed": &types.AttributeValueMemberS{Value: "completed"},
+				},
+				ExpressionAttributeNames: map[string]string{
+					"#status": "status",
+				},
+			})
 
-	if err != nil {
-		var cfe *types.ConditionalCheckFailedException
-		if cerr.As(err, &cfe) {
-			return false, nil // someone else finalized
-		}
-		return false, err
-	}
+			if err != nil {
+				var cfe *types.ConditionalCheckFailedException
+				if cerr.As(err, &cfe) {
+					finalized = false
+					return nil // someone else finalized
+				}
+				return err
+			}
 
-	return true, nil
+			finalized = true
+			return nil
+		},
+		retries.IsRetriableDbError,
+	)
+
+	return finalized, err
 }
