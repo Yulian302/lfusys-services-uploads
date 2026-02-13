@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Yulian302/lfusys-services-commons/health"
+	"github.com/Yulian302/lfusys-services-commons/retries"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -29,10 +31,21 @@ func NewS3ChunkStore(client *s3.Client, bucketName string) *S3ChunkStore {
 }
 
 func (s *S3ChunkStore) IsReady(ctx context.Context) error {
-	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(s.bucketName),
-	})
-	return err
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	return retries.Retry(
+		ctx,
+		retries.HealthAttempts,
+		retries.HealthBaseDelay,
+		func() error {
+			_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+				Bucket: aws.String(s.bucketName),
+			})
+			return err
+		},
+		retries.IsRetriableS3Error,
+	)
 }
 
 func (s *S3ChunkStore) Name() string {
@@ -40,11 +53,20 @@ func (s *S3ChunkStore) Name() string {
 }
 
 func (store *S3ChunkStore) PutChunk(ctx context.Context, key string, chunkData []byte) error {
-	_, err := store.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(store.bucketName),
-		Key:    aws.String(key),
-		Body:   bytes.NewReader(chunkData),
-	})
+	err := retries.Retry(
+		ctx,
+		retries.DefaultAttempts,
+		retries.DefaultBaseDelay,
+		func() error {
+			_, err := store.client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String(store.bucketName),
+				Key:    aws.String(key),
+				Body:   bytes.NewReader(chunkData),
+			})
+			return err
+		},
+		retries.IsRetriableS3Error,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to upload chunk: %w", err)
 	}
