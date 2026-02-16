@@ -66,8 +66,10 @@ func registerRoutes(r *gin.Engine, s *Services) {
 		r,
 	)
 
+	v1 := routers.ApplyApiVersioning("1", r)
+
 	routers.RegisterUploadsRouter(
 		uploads.NewUploadsHandler(s.Uploads, s.Sessions),
-		r,
+		v1,
 	)
 }
