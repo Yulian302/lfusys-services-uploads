@@ -5,7 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterUploadsRouter(h *uploads.UploadsHandler, r *gin.Engine) {
+func RegisterUploadsRouter(h *uploads.UploadsHandler, r *gin.RouterGroup) {
 	uploads := r.Group("/upload")
 
 	uploads.PUT("/:uploadId/chunk/:chunkId", h.Upload)
