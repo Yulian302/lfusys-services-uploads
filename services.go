@@ -32,8 +32,8 @@ func BuildServices(app *App) *Services {
 	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWSConfig.BucketName)
 	sessionStore := store.NewDynamoDbUploadsStore(app.DynamoDB, app.Config.DynamoDBConfig.UploadsTableName)
 
-	uploadService := services.NewUploadServiceImpl(chunkStore)
-	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue)
+	uploadService := services.NewUploadServiceImpl(chunkStore, app.Logger)
+	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue, app.Logger)
 
 	return &Services{
 		Uploads:       uploadService,
