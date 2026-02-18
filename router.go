@@ -21,7 +21,7 @@ func BuildRouter(app *App) *gin.Engine {
 	applyTracing(r, app)
 	applySwagger(r, app)
 
-	registerRoutes(r, app.Services)
+	registerRoutes(r, app)
 
 	return r
 }
@@ -53,15 +53,15 @@ func applySwagger(r *gin.Engine, app *App) {
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
 
-func registerRoutes(r *gin.Engine, s *Services) {
+func registerRoutes(r *gin.Engine, app *App) {
 	r.GET("/test", func(ctx *gin.Context) {
 		responses.JSONSuccess(ctx, "ok")
 	})
 
 	health.RegisterHealthRoutes(health.NewHealthHandler(
-		s.Stores.sessions,
-		s.Stores.chunks,
-		s.UploadsNotify,
+		app.Services.Stores.sessions,
+		app.Services.Stores.chunks,
+		app.Services.UploadsNotify,
 	),
 		r,
 	)
@@ -69,7 +69,7 @@ func registerRoutes(r *gin.Engine, s *Services) {
 	v1 := routers.ApplyApiVersioning("1", r)
 
 	routers.RegisterUploadsRouter(
-		uploads.NewUploadsHandler(s.Uploads, s.Sessions),
+		uploads.NewUploadsHandler(app.Services.Uploads, app.Services.Sessions, app.Logger),
 		v1,
 	)
 }
