@@ -31,12 +31,14 @@ type Shutdowner interface {
 }
 
 func BuildServices(app *App) *Services {
-	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID)
+	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID, app.Logger)
 	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWSConfig.BucketName)
 	sessionStore := store.NewDynamoDbUploadsStore(app.DynamoDB, app.Config.DynamoDBConfig.UploadsTableName)
 
 	uploadService := services.NewUploadServiceImpl(chunkStore, app.Logger)
 	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue, app.Logger)
+
+	app.Logger.Info("uploads services initialized successfully")
 
 	return &Services{
 		Uploads:       uploadService,

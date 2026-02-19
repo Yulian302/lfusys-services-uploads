@@ -25,11 +25,12 @@ type SQSUploadNotify struct {
 	logger logger.Logger
 }
 
-func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string) *SQSUploadNotify {
+func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string, l logger.Logger) *SQSUploadNotify {
 	return &SQSUploadNotify{
 		client:    client,
 		queueName: queueName,
 		accountID: accountId,
+		logger:    l,
 	}
 }
 
