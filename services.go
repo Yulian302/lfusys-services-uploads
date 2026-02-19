@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 
+	logger "github.com/Yulian302/lfusys-services-commons/logging"
 	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/Yulian302/lfusys-services-uploads/store"
@@ -12,6 +13,8 @@ import (
 type Stores struct {
 	chunks   store.ChunkStore
 	sessions store.UploadsStore
+
+	logger logger.Logger
 }
 
 type Services struct {
@@ -20,6 +23,7 @@ type Services struct {
 	UploadsNotify queues.UploadNotify
 
 	Stores *Stores
+	logger logger.Logger
 }
 
 type Shutdowner interface {
@@ -27,7 +31,6 @@ type Shutdowner interface {
 }
 
 func BuildServices(app *App) *Services {
-
 	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID)
 	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWSConfig.BucketName)
 	sessionStore := store.NewDynamoDbUploadsStore(app.DynamoDB, app.Config.DynamoDBConfig.UploadsTableName)
@@ -48,25 +51,25 @@ func BuildServices(app *App) *Services {
 }
 
 func (s *Services) Shutdown(ctx context.Context) error {
-	log.Println("shutting down services")
+	s.logger.Info("shutting down services")
 
 	if s.Stores != nil {
 		if err := s.Stores.Shutdown(ctx); err != nil {
-			log.Printf("stores shutdown error: %v", err)
+			s.logger.Error("stores shutdown failed", "err", err.Error())
 		}
 	}
 
-	log.Println("services shutdown complete")
+	s.logger.Info("services shutdown complete")
 	return nil
 }
 
 func (s *Stores) Shutdown(ctx context.Context) error {
-	log.Println("shutting down stores")
+	s.logger.Info("shutting down stores")
 
 	shutdownIfPossible := func(name string, v any) {
 		if sh, ok := v.(Shutdowner); ok {
 			if err := sh.Shutdown(ctx); err != nil {
-				log.Printf("%s store shutdown error: %v", name, err)
+				s.logger.Error(fmt.Sprintf("%s store shutdown failed", name), "err", err.Error())
 			}
 		}
 	}
@@ -74,6 +77,6 @@ func (s *Stores) Shutdown(ctx context.Context) error {
 	shutdownIfPossible("chunks", s.chunks)
 	shutdownIfPossible("sessions", s.sessions)
 
-	log.Println("stores shutdown complete")
+	s.logger.Info("stores shutdown complete")
 	return nil
 }

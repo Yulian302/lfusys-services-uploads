@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 
 	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-commons/config"
@@ -76,9 +76,10 @@ func SetupApp() (*App, error) {
 	if cfg.Tracing {
 		tp, err := common.InitTracer(context.Background(), "uploads", cfg.TracingAddr)
 		if err != nil {
-			log.Fatalf("failed to start tracing: %v", err)
+			app.Logger.Error("tracing start failed", "err", err.Error())
+			os.Exit(1)
 		}
-		log.Println("tracing in progress...")
+		app.Logger.Info("tracing in progress...")
 
 		app.TracerProvider = tp
 	}
@@ -121,26 +122,26 @@ func initSqs(cfg aws.Config) *sqs.Client {
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
-	log.Println("starting graceful shutdown")
+	a.Logger.Info("starting graceful shutdown")
 
 	if a.Server != nil {
 		if err := a.Server.Shutdown(ctx); err != nil {
-			log.Printf("http server shutdown error: %v", err)
+			a.Logger.Error("http server shutdown failed", "err", err.Error())
 		}
 	}
 
 	if a.Services != nil {
 		if err := a.Services.Shutdown(ctx); err != nil {
-			log.Printf("services shutdown error: %v", err)
+			a.Logger.Error("services shutdown failed", "err", err.Error())
 		}
 	}
 
 	if a.TracerProvider != nil {
 		if err := a.TracerProvider.Shutdown(ctx); err != nil {
-			log.Printf("tracer shutdown error: %v", err)
+			a.Logger.Error("tracer shutdown failed", "err", err.Error())
 		}
 	}
 
-	log.Println("graceful shutdown complete")
+	a.Logger.Info("graceful shutdown complete")
 	return nil
 }
