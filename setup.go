@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-commons/config"
@@ -39,6 +40,10 @@ func SetupApp() (*App, error) {
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	if strings.EqualFold(cfg.Env, "PROD") {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	awsCfg, err := initAWS(*cfg.AWSConfig)
