@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/Yulian302/lfusys-services-commons/health"
+	logger "github.com/Yulian302/lfusys-services-commons/logging"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
@@ -21,13 +21,16 @@ type SQSUploadNotify struct {
 	client    *sqs.Client
 	queueName string
 	accountID string
+
+	logger logger.Logger
 }
 
-func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string) *SQSUploadNotify {
+func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string, l logger.Logger) *SQSUploadNotify {
 	return &SQSUploadNotify{
 		client:    client,
 		queueName: queueName,
 		accountID: accountId,
+		logger:    l,
 	}
 }
 
@@ -63,6 +66,7 @@ func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId str
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
-	log.Printf("Message sent successfully. Message ID: %s", *res.MessageId)
+	q.logger.Info("Message sent successfully. Message ID: %s", *res.MessageId)
+
 	return nil
 }
