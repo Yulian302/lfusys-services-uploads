@@ -7,6 +7,7 @@ import (
 
 	"github.com/Yulian302/lfusys-services-commons/health"
 	logger "github.com/Yulian302/lfusys-services-commons/logging"
+	"github.com/Yulian302/lfusys-services-commons/retries"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
@@ -53,20 +54,40 @@ func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId str
 	}
 	messageBodyStr, err := json.Marshal(messageBody)
 	if err != nil {
+		q.logger.Error("upload notification failed", "reason", "bad message body")
 		return err
 	}
 
-	res, err := q.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:    aws.String(fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", "eu-north-1", q.accountID, q.queueName)),
-		MessageBody: aws.String(string(messageBodyStr)),
+	var msgId string
+	queueUrl := fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", "eu-north-1", q.accountID, q.queueName)
 
-		MessageGroupId:         aws.String(uploadId),
-		MessageDeduplicationId: aws.String(fmt.Sprintf("dudup-%s", uploadId)),
-	})
+	err = retries.Retry(
+		ctx,
+		retries.DefaultAttempts,
+		retries.DefaultBaseDelay,
+		func() error {
+			out, err := q.client.SendMessage(ctx, &sqs.SendMessageInput{
+				QueueUrl:    aws.String(queueUrl),
+				MessageBody: aws.String(string(messageBodyStr)),
+
+				MessageGroupId:         aws.String(uploadId),
+				MessageDeduplicationId: aws.String(fmt.Sprintf("dudup-%s", uploadId)),
+			})
+			if err != nil {
+				return err
+			}
+
+			msgId = *out.MessageId
+			return nil
+		},
+		retries.IsRetriableSQSError,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
+		q.logger.Error("upload notification sending failed", "err", err)
+		return err
 	}
-	q.logger.Info("Message sent successfully. Message ID: %s", *res.MessageId)
+
+	q.logger.Info("Message sent successfully. Message ID: %s", msgId)
 
 	return nil
 }
