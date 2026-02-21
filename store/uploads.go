@@ -108,15 +108,11 @@ func (s *DynamoDbUploadsStore) PutChunk(ctx context.Context, uploadID string, ch
             SET #status = :in_progress
         `),
 				ConditionExpression: aws.String(`
-			attribute_not_exists(uploaded_chunks)
-			OR size(uploaded_chunks) <= :total
+			attribute_exists(upload_id)
         `),
 				ExpressionAttributeValues: map[string]types.AttributeValue{
 					":chunk": &types.AttributeValueMemberNS{
 						Value: []string{strconv.FormatUint(uint64(chunkIdx), 10)},
-					},
-					":total": &types.AttributeValueMemberN{
-						Value: strconv.FormatUint(uint64(totalChunks), 10),
 					},
 					":in_progress": &types.AttributeValueMemberS{Value: "in_progress"},
 				},
