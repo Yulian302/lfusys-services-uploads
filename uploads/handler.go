@@ -3,29 +3,29 @@ package uploads
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	error "errors"
 	"io"
 	"net/http"
 	"strconv"
 
-	logger "github.com/Yulian302/lfusys-services-commons/logging"
 	"github.com/Yulian302/lfusys-services-commons/errors"
+	logger "github.com/Yulian302/lfusys-services-commons/logging"
+	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/gin-gonic/gin"
 )
 
 type UploadsHandler struct {
-	uploadService  services.UploadService
-	sessionService services.SessionService
+	uploadService services.UploadService
+	uploadNotify  queues.UploadNotify
 
 	logger logger.Logger
 }
 
-func NewUploadsHandler(uploadService services.UploadService, sesionService services.SessionService, l logger.Logger) *UploadsHandler {
+func NewUploadsHandler(uploadService services.UploadService, uploadNotify queues.UploadNotify, l logger.Logger) *UploadsHandler {
 	return &UploadsHandler{
-		uploadService:  uploadService,
-		sessionService: sesionService,
-		logger:         l,
+		uploadService: uploadService,
+		uploadNotify:  uploadNotify,
+		logger:        l,
 	}
 }
 
@@ -122,34 +122,18 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	err = h.sessionService.MarkChunkComplete(c.Request.Context(), uploadId, uint32(chunkId))
+	err = h.uploadNotify.NotifyChunkComplete(c.Request.Context(), uploadId, uint32(chunkId))
 	if err != nil {
-		if error.Is(err, errors.ErrSessionNotFound) {
-			h.logger.Warn("mark chunk complete failed",
-				"upload_id", uploadId,
-				"chunk_id", chunkId,
-				"reason", "session_not_found",
-			)
-			errors.UnauthorizedResponse(c, "session not found")
-		} else if error.Is(err, errors.ErrSessionUpdateDetails) {
-			h.logger.Error("mark chunk complete failed",
-				"upload_id", uploadId,
-				"chunk_id", chunkId,
-				"reason", "session_update_error",
-			)
-			errors.InternalServerErrorResponse(c, "could not update session details")
-		} else {
-			h.logger.Error("mark chunk complete failed",
-				"upload_id", uploadId,
-				"chunk_id", chunkId,
-				"error", err,
-			)
-			errors.InternalServerErrorResponse(c, "internal server error")
-		}
+		h.logger.Error("notify chunk complete failed",
+			"upload_id", uploadId,
+			"chunk_id", chunkId,
+			"error", err,
+		)
+		errors.InternalServerErrorResponse(c, "internal server error")
 		return
 	}
 
-	h.logger.Info("chunk uploaded successfully",
+	h.logger.Info("chunk complete message sent successfully",
 		"upload_id", uploadId,
 		"chunk_id", chunkId,
 		"chunk_size", len(chunkData),

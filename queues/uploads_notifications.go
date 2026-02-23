@@ -13,7 +13,7 @@ import (
 )
 
 type UploadNotify interface {
-	NotifyUploadComplete(ctx context.Context, uploadId string) error
+	NotifyChunkComplete(ctx context.Context, uploadId string, chunkIdx uint32) error
 
 	health.ReadinessCheck
 }
@@ -22,22 +22,24 @@ type SQSUploadNotify struct {
 	client    *sqs.Client
 	queueName string
 	accountID string
+	region    string
 
 	logger logger.Logger
 }
 
-func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string, l logger.Logger) *SQSUploadNotify {
+func NewSQSUploadNotify(client *sqs.Client, queueName string, accountId string, region string, l logger.Logger) *SQSUploadNotify {
 	return &SQSUploadNotify{
 		client:    client,
 		queueName: queueName,
 		accountID: accountId,
+		region:    region,
 		logger:    l,
 	}
 }
 
 func (q *SQSUploadNotify) IsReady(ctx context.Context) error {
 	_, err := q.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:     aws.String(fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", "eu-north-1", q.accountID, q.queueName)),
+		QueueUrl:     aws.String(fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", q.region, q.accountID, q.queueName)),
 		MessageBody:  aws.String("healthcheck"),
 		DelaySeconds: 0,
 	})
@@ -48,9 +50,10 @@ func (q *SQSUploadNotify) Name() string {
 	return "NoficationQueue[uploadsComplete]"
 }
 
-func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId string) error {
+func (q *SQSUploadNotify) NotifyChunkComplete(ctx context.Context, uploadId string, chunkIdx uint32) error {
 	messageBody := &UploadCompleteMessage{
 		UploadId: uploadId,
+		ChunkIdx: chunkIdx,
 	}
 	messageBodyStr, err := json.Marshal(messageBody)
 	if err != nil {
@@ -59,7 +62,7 @@ func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId str
 	}
 
 	var msgId string
-	queueUrl := fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", "eu-north-1", q.accountID, q.queueName)
+	queueUrl := fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s.fifo", q.region, q.accountID, q.queueName)
 
 	err = retries.Retry(
 		ctx,
@@ -71,7 +74,7 @@ func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId str
 				MessageBody: aws.String(string(messageBodyStr)),
 
 				MessageGroupId:         aws.String(uploadId),
-				MessageDeduplicationId: aws.String(fmt.Sprintf("dudup-%s", uploadId)),
+				MessageDeduplicationId: aws.String(fmt.Sprintf("dudup-%s-%d", uploadId, chunkIdx)),
 			})
 			if err != nil {
 				return err
@@ -87,7 +90,7 @@ func (q *SQSUploadNotify) NotifyUploadComplete(ctx context.Context, uploadId str
 		return err
 	}
 
-	q.logger.Info("Message sent successfully. Message ID: %s", msgId)
+	q.logger.Info(fmt.Sprintf("Chunk %d complete message sent successfully. Message ID: %s", chunkIdx, msgId))
 
 	return nil
 }
