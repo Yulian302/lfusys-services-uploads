@@ -11,15 +11,13 @@ import (
 )
 
 type Stores struct {
-	chunks   store.ChunkStore
-	sessions store.UploadsStore
+	chunks store.ChunkStore
 
 	logger logger.Logger
 }
 
 type Services struct {
 	Uploads       services.UploadService
-	Sessions      services.SessionService
 	UploadsNotify queues.UploadNotify
 
 	Stores *Stores
@@ -31,23 +29,19 @@ type Shutdowner interface {
 }
 
 func BuildServices(app *App) *Services {
-	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID, app.Logger)
+	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID, app.Config.AWSConfig.Region, app.Logger)
 	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWSConfig.BucketName)
-	sessionStore := store.NewDynamoDbUploadsStore(app.DynamoDB, app.Config.DynamoDBConfig.UploadsTableName)
 
 	uploadService := services.NewUploadServiceImpl(chunkStore, app.Logger)
-	sessionService := services.NewSessionServiceImpl(sessionStore, upNotifyQueue, app.Logger)
 
 	app.Logger.Info("uploads services initialized successfully")
 
 	return &Services{
 		Uploads:       uploadService,
-		Sessions:      sessionService,
 		UploadsNotify: upNotifyQueue,
 
 		Stores: &Stores{
-			chunks:   chunkStore,
-			sessions: sessionStore,
+			chunks: chunkStore,
 		},
 	}
 }
@@ -77,7 +71,6 @@ func (s *Stores) Shutdown(ctx context.Context) error {
 	}
 
 	shutdownIfPossible("chunks", s.chunks)
-	shutdownIfPossible("sessions", s.sessions)
 
 	s.logger.Info("stores shutdown complete")
 	return nil

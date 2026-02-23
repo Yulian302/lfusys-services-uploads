@@ -13,7 +13,6 @@ import (
 	logger "github.com/Yulian302/lfusys-services-commons/logging"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/gin-gonic/gin"
@@ -23,9 +22,8 @@ import (
 type App struct {
 	Server *http.Server
 
-	DynamoDB *dynamodb.Client
-	S3       *s3.Client
-	Sqs      *sqs.Client
+	S3  *s3.Client
+	Sqs *sqs.Client
 
 	Config    config.Config
 	AwsConfig aws.Config
@@ -51,11 +49,6 @@ func SetupApp() (*App, error) {
 		return nil, err
 	}
 
-	db := initDynamo(awsCfg)
-	if db == nil {
-		return nil, errors.New("could not init dynamodb")
-	}
-
 	s3 := initS3(awsCfg)
 	if s3 == nil {
 		return nil, errors.New("could not init s3")
@@ -69,9 +62,8 @@ func SetupApp() (*App, error) {
 	appLogger := logger.NewSlogLogger(logger.CreateAppLogger(cfg.Env))
 
 	app := &App{
-		DynamoDB: db,
-		S3:       s3,
-		Sqs:      sqs,
+		S3:  s3,
+		Sqs: sqs,
 
 		Config:    cfg,
 		AwsConfig: awsCfg,
@@ -112,10 +104,6 @@ func initAWS(cfg config.AWSConfig) (aws.Config, error) {
 		return aws.Config{}, fmt.Errorf("load aws config: %w", err)
 	}
 	return awsCfg, nil
-}
-
-func initDynamo(cfg aws.Config) *dynamodb.Client {
-	return dynamodb.NewFromConfig(cfg)
 }
 
 func initS3(cfg aws.Config) *s3.Client {

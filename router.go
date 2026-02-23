@@ -59,7 +59,6 @@ func registerRoutes(r *gin.Engine, app *App) {
 	})
 
 	health.RegisterHealthRoutes(health.NewHealthHandler(
-		app.Services.Stores.sessions,
 		app.Services.Stores.chunks,
 		app.Services.UploadsNotify,
 	),
@@ -69,7 +68,7 @@ func registerRoutes(r *gin.Engine, app *App) {
 	v1 := routers.ApplyApiVersioning("1", r)
 
 	routers.RegisterUploadsRouter(
-		uploads.NewUploadsHandler(app.Services.Uploads, app.Services.Sessions, app.Logger),
+		uploads.NewUploadsHandler(app.Services.Uploads, app.Services.UploadsNotify, app.Logger),
 		v1,
 	)
 }
