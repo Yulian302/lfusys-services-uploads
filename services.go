@@ -29,8 +29,8 @@ type Shutdowner interface {
 }
 
 func BuildServices(app *App) *Services {
-	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.ServiceConfig.UploadsNotificationsQueueName, app.Config.AWSConfig.AccountID, app.Config.AWSConfig.Region, app.Logger)
-	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWSConfig.BucketName)
+	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.Sqs.QueueName, app.Config.AWS.AccountID, app.Config.AWS.Region, app.Logger)
+	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWS.BucketName)
 
 	uploadService := services.NewUploadServiceImpl(chunkStore, app.Logger)
 

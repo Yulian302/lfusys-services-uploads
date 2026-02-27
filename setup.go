@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 
 	common "github.com/Yulian302/lfusys-services-commons"
 	"github.com/Yulian302/lfusys-services-commons/config"
@@ -34,17 +33,20 @@ type App struct {
 }
 
 func SetupApp() (*App, error) {
-	cfg := config.LoadConfig()
-
-	if err := cfg.Validate(); err != nil {
+	cfg, err := config.LoadConfig(config.ConfigOptions{
+		LoadCors: true,
+		LoadAWS:  true,
+		LoadSqs:  true,
+	}, config.Uploads)
+	if err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	if strings.EqualFold(cfg.Env, "PROD") {
+	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	awsCfg, err := initAWS(*cfg.AWSConfig)
+	awsCfg, err := initAWS(cfg.AWS)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,7 @@ func SetupApp() (*App, error) {
 
 func (a *App) Run(r *gin.Engine) error {
 	a.Server = &http.Server{
-		Addr:    a.Config.UploadsAddr,
+		Addr:    a.Config.Service.Uploads.Addr,
 		Handler: r,
 	}
 
