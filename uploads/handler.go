@@ -9,22 +9,19 @@ import (
 
 	"github.com/Yulian302/lfusys-services-commons/errors"
 	logger "github.com/Yulian302/lfusys-services-commons/logging"
-	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/gin-gonic/gin"
 )
 
 type UploadsHandler struct {
 	uploadService services.UploadService
-	uploadNotify  queues.UploadNotify
 
 	logger logger.Logger
 }
 
-func NewUploadsHandler(uploadService services.UploadService, uploadNotify queues.UploadNotify, l logger.Logger) *UploadsHandler {
+func NewUploadsHandler(uploadService services.UploadService, l logger.Logger) *UploadsHandler {
 	return &UploadsHandler{
 		uploadService: uploadService,
-		uploadNotify:  uploadNotify,
 		logger:        l,
 	}
 }
@@ -121,23 +118,6 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 		errors.InternalServerErrorResponse(c, err.Error())
 		return
 	}
-
-	err = h.uploadNotify.NotifyChunkComplete(c.Request.Context(), uploadId, uint32(chunkId))
-	if err != nil {
-		h.logger.Error("notify chunk complete failed",
-			"upload_id", uploadId,
-			"chunk_id", chunkId,
-			"error", err,
-		)
-		errors.InternalServerErrorResponse(c, "internal server error")
-		return
-	}
-
-	h.logger.Info("chunk complete message sent successfully",
-		"upload_id", uploadId,
-		"chunk_id", chunkId,
-		"chunk_size", len(chunkData),
-	)
 
 	c.JSON(http.StatusOK, UploadResponse{
 		UploadId: uploadId,
