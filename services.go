@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	logger "github.com/Yulian302/lfusys-services-commons/logging"
-	"github.com/Yulian302/lfusys-services-uploads/queues"
 	"github.com/Yulian302/lfusys-services-uploads/services"
 	"github.com/Yulian302/lfusys-services-uploads/store"
 )
@@ -18,7 +17,6 @@ type Stores struct {
 
 type Services struct {
 	Uploads       services.UploadService
-	UploadsNotify queues.UploadNotify
 
 	Stores *Stores
 	logger logger.Logger
@@ -29,7 +27,6 @@ type Shutdowner interface {
 }
 
 func BuildServices(app *App) *Services {
-	upNotifyQueue := queues.NewSQSUploadNotify(app.Sqs, app.Config.Sqs.QueueName, app.Config.AWS.AccountID, app.Config.AWS.Region, app.Logger)
 	chunkStore := store.NewS3ChunkStore(app.S3, app.Config.AWS.BucketName)
 
 	uploadService := services.NewUploadServiceImpl(chunkStore, app.Logger)
@@ -38,7 +35,6 @@ func BuildServices(app *App) *Services {
 
 	return &Services{
 		Uploads:       uploadService,
-		UploadsNotify: upNotifyQueue,
 
 		Stores: &Stores{
 			chunks: chunkStore,
